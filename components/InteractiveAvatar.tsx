@@ -75,10 +75,12 @@ function InteractiveAvatar() {
         console.log("Avatar stopped talking", e);
       });
       avatar.on(StreamingEvents.STREAM_DISCONNECTED, () => {
-        console.log("Stream disconnected");
+        const disconnectedTime = new Date();
+        console.log(`Stream disconnected ⛔ at ${disconnectedTime.toISOString()}`);
       });
       avatar.on(StreamingEvents.STREAM_READY, (event) => {
-        console.log(">>>>> Stream ready:", event.detail);
+        const readyTime = new Date();
+        console.log(`Stream ready 🚀 at ${readyTime.toISOString()}`, event.detail);
       });
       avatar.on(StreamingEvents.USER_START, (event) => {
         console.log(">>>>> User started talking:", event);

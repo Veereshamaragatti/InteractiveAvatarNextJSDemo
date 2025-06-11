@@ -22,6 +22,30 @@ import { MessageHistory } from "./AvatarSession/MessageHistory";
 
 import { AVATARS } from "@/app/lib/constants";
 
+// Helper function to format date in Indian Standard Time (IST)
+const formatIndianTime = (date: Date): string => {
+  const options: Intl.DateTimeFormatOptions = {
+    timeZone: 'Asia/Kolkata',
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: true
+  };
+  
+  return new Intl.DateTimeFormat('en-IN', options).format(date);
+};
+
+// Interface for tracking stream session timing
+interface SessionTiming {
+  id: string;         // Unique identifier for each session
+  startTime: Date;    // When the stream started
+  endTime?: Date;     // When the stream ended (optional as it might not have ended yet)
+  duration?: number;  // Duration in milliseconds (calculated when session ends)
+}
+
 const DEFAULT_CONFIG: StartAvatarRequest = {
   quality: AvatarQuality.Low,
   avatarName: AVATARS[0].avatar_id,
@@ -44,8 +68,18 @@ function InteractiveAvatar() {
   const { startVoiceChat } = useVoiceChat();
 
   const [config, setConfig] = useState<StartAvatarRequest>(DEFAULT_CONFIG);
+  
+  // State for tracking session timing information
+  const [sessionTimings, setSessionTimings] = useState<SessionTiming[]>([]);
+  // Reference to track the current session ID
+  const currentSessionIdRef = useRef<string | null>(null);
 
   const mediaStream = useRef<HTMLVideoElement>(null);
+
+  // Helper function to generate unique session ID
+  const generateSessionId = () => {
+    return `session-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+  };
 
   async function fetchAccessToken() {
     try {
@@ -73,14 +107,51 @@ function InteractiveAvatar() {
       });
       avatar.on(StreamingEvents.AVATAR_STOP_TALKING, (e) => {
         console.log("Avatar stopped talking", e);
-      });
-      avatar.on(StreamingEvents.STREAM_DISCONNECTED, () => {
+      });      avatar.on(StreamingEvents.STREAM_DISCONNECTED, () => {
         const disconnectedTime = new Date();
-        console.log(`Stream disconnected ⛔ at ${disconnectedTime.toISOString()}`);
+        console.log(`Stream disconnected ⛔ at ${disconnectedTime.toISOString()} (IST: ${formatIndianTime(disconnectedTime)})`);
+        
+        // Update session timing when stream disconnects
+        if (currentSessionIdRef.current) {
+          setSessionTimings(prevTimings => {
+            return prevTimings.map(session => {
+              if (session.id === currentSessionIdRef.current) {
+                // Calculate duration in milliseconds
+                const duration = disconnectedTime.getTime() - session.startTime.getTime();
+                console.log(`Session ${session.id} duration: ${duration}ms (${duration / 1000}s)`);
+                
+                // Return updated session with end time and duration
+                return {
+                  ...session,
+                  endTime: disconnectedTime,
+                  duration: duration
+                };
+              }
+              return session;
+            });
+          });
+          // Clear the current session ID reference
+          currentSessionIdRef.current = null;
+        }
       });
-      avatar.on(StreamingEvents.STREAM_READY, (event) => {
+        avatar.on(StreamingEvents.STREAM_READY, (event) => {
         const readyTime = new Date();
-        console.log(`Stream ready 🚀 at ${readyTime.toISOString()}`, event.detail);
+        console.log(`Stream ready 🚀 at ${readyTime.toISOString()} (IST: ${formatIndianTime(readyTime)})`, event.detail);
+        
+        // Generate a new session ID
+        const sessionId = generateSessionId();
+        // Store the ID in the ref for future access
+        currentSessionIdRef.current = sessionId;
+        
+        // Create a new session timing record
+        const newSession: SessionTiming = {
+          id: sessionId,
+          startTime: readyTime,
+        };
+        
+        // Add to session timings state
+        setSessionTimings(prevTimings => [...prevTimings, newSession]);
+        console.log(`Started new session with ID: ${sessionId}`);
       });
       avatar.on(StreamingEvents.USER_START, (event) => {
         console.log(">>>>> User started talking:", event);
@@ -96,8 +167,7 @@ function InteractiveAvatar() {
       });
       avatar.on(StreamingEvents.AVATAR_TALKING_MESSAGE, (event) => {
         console.log(">>>>> Avatar talking message:", event);
-      });
-      avatar.on(StreamingEvents.AVATAR_END_MESSAGE, (event) => {
+      });      avatar.on(StreamingEvents.AVATAR_END_MESSAGE, (event) => {
         console.log(">>>>> Avatar end message:", event);
       });
 
@@ -153,6 +223,28 @@ function InteractiveAvatar() {
       </div>
       {sessionState === StreamingAvatarSessionState.CONNECTED && (
         <MessageHistory />
+      )}
+      
+      {/* Display session timing information */}
+      {sessionTimings.length > 0 && (
+        <div className="mt-4 p-4 bg-zinc-800 rounded-xl">
+          <h3 className="text-lg font-medium mb-2">Session Timing History</h3>
+          <div className="space-y-2">
+            {sessionTimings.map(session => (              <div key={session.id} className="p-2 bg-zinc-700 rounded">
+                <p><strong>Session ID:</strong> {session.id}</p>
+                <p><strong>Started (UTC):</strong> {session.startTime.toISOString()}</p>
+                <p><strong>Started (IST):</strong> {formatIndianTime(session.startTime)}</p>
+                {session.endTime && (
+                  <>
+                    <p><strong>Ended (UTC):</strong> {session.endTime.toISOString()}</p>
+                    <p><strong>Ended (IST):</strong> {formatIndianTime(session.endTime)}</p>
+                    <p><strong>Duration:</strong> {session.duration ? `${(session.duration / 1000).toFixed(2)}s` : 'N/A'}</p>
+                  </>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
       )}
     </div>
   );
